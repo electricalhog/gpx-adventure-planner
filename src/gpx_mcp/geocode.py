@@ -25,7 +25,7 @@ async def _throttle() -> None:
         _last_call_ts = loop.time()
 
 
-async def geocode(query: str, limit: int = 3, country_codes: str | None = "de") -> list[dict]:
+async def geocode(query: str, limit: int = 3, country_codes: str | None = None) -> list[dict]:
     """Resolve a place name to coordinates."""
     await _throttle()
     params: dict[str, str | int] = {

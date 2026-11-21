@@ -41,7 +41,7 @@ Category = pois_mod.Category
 # --------------------------------------------------------------------------- places
 
 @mcp.tool()
-async def geocode(query: str, limit: int = 3, country_codes: str | None = "de") -> list[dict]:
+async def geocode(query: str, limit: int = 3, country_codes: str | None = None) -> list[dict]:
     """Place name → coordinates (Nominatim). Plain names work best ("Feucht", "Hersbruck Bahnhof")."""
     return await geocode_mod.geocode(query=query, limit=limit, country_codes=country_codes)
 
