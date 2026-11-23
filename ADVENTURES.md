@@ -21,3 +21,18 @@ removing gravel often moves you onto busier roads. Prefer `fastbike-lowtraffic` 
 Use the Coros MCP tool `uploadRouteFile` with the GPX text, `fileName` ending in `.gpx`,
 and `routeType`: 1 = bike, 2 = on foot. Large tracks should be simplified (~600 points) first.
 Processing is async; the same file can't be re-imported until the existing route is deleted in the app.
+
+## Climb analysis from a ride (FIT file)
+Download the ride's FIT file from your watch service, then:
+
+```sh
+uv sync --extra fit
+uv run gpx-climb-map ride.fit --title "My climb" --serve            # highest point of the ride
+uv run gpx-climb-map ride.fit --summit 44.21,-72.93 --window-km 16  # pick the summit, widen the approach
+```
+
+It writes `<ride>.climb.html`: a map of the climb colored by heart rate, power, speed, climb rate,
+gradient, cadence or elevation, linked to an elevation-profile chart, plus summary stats (gain, time,
+VAM, avg/max HR and power). `--serve` opens it at `http://localhost:8765/...`; use that, not a
+`file://` URL, because OpenStreetMap's tile servers block requests that carry no referrer.
+`--window-km` is how far back from the summit to look for the climb's lowest point (default 8).

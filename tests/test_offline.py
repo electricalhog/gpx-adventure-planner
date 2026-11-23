@@ -233,3 +233,58 @@ def test_avoid_circles_skip_waypoints_and_space_out():
     assert all(c[2] == 45.0 for c in circles)
     gaps = [haversine_m(a[0], a[1], b[0], b[1]) for a, b in zip(circles, circles[1:])]
     assert all(g >= 85 for g in gaps)
+
+
+# --------------------------------------------------------------------------- climb_map
+
+def _ride(profile, n=600, step_m=10.0, dt=2.0):
+    """Synthetic FIT-like points heading east; `profile(dist_m)` gives altitude."""
+    out = []
+    for i in range(n):
+        d = i * step_m
+        out.append({"lat": 44.2, "lon": -72.9 + i * 1e-4, "d": d, "alt": profile(d), "t": i * dt,
+                    "hr": 120 + i // 10, "pw": 200, "cad": 80, "spd": 18.0})
+    return out
+
+
+def test_climb_slicing_finds_summit_start_and_rows():
+    from gpx_mcp import climb_map as cm
+
+    def prof(d):  # flat 1 km, dip to 90 m at 1.5 km, climb 8% to 170 m at 2.5 km, then descend
+        if d < 1000:
+            return 100.0
+        if d < 1500:
+            return 100 - (d - 1000) * 0.02
+        if d < 2500:
+            return 90 + (d - 1500) * 0.08
+        return 170 - (d - 2500) * 0.05
+
+    pts = _ride(prof)
+    si = cm.find_summit(pts)
+    assert abs(pts[si]["d"] - 2500) < 15 and pts[si]["alt"] == pytest.approx(170, abs=1)
+    st = cm.find_climb_start(pts, si, 3000)
+    assert abs(pts[st]["d"] - 1500) < 15  # the dip, not the earlier flat
+    data = cm.build_rows(pts, st, si, after_m=500, lead=5)
+    rows, c0, c1 = data["rows"], data["c0"], data["c1"]
+    assert rows[c1]["alt"] - rows[c0]["alt"] == pytest.approx(80, abs=3)
+    mid = rows[(c0 + c1) // 2]
+    assert mid["gr"] == pytest.approx(8.0, abs=0.7)
+    assert mid["cr"] == pytest.approx(0.08 * 18.0 / 3.6 * 3600, rel=0.1) or mid["cr"] > 0
+    assert rows[-1]["km"] > rows[c1]["km"]  # descent context included
+
+
+def test_find_summit_near_point():
+    from gpx_mcp import climb_map as cm
+
+    pts = _ride(lambda d: 100 + d * 0.01)
+    i = cm.find_summit(pts, near=(44.2, -72.9 + 100 * 1e-4))
+    assert i == 100
+
+
+def test_render_fills_placeholders():
+    from gpx_mcp import climb_map as cm
+
+    data = {"rows": [{"lat": 1, "lon": 2, "km": 0, "t": 0, "alt": 5, "hr": 100, "pw": 250, "cad": 80, "spd": 10, "cr": 0, "gr": 0}], "c0": 0, "c1": 0}
+    html = cm.render(data, "My Climb", "Sat &middot; test")
+    assert "__" not in html.replace("__proto__", "")
+    assert "My Climb" in html and "Sat &middot; test" in html and '"rows"' in html

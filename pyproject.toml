@@ -11,6 +11,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+fit = [
+    "fitdecode>=0.10",
+]
 viewer = [
     "starlette>=0.40",
     "uvicorn>=0.30",
@@ -22,6 +25,7 @@ dev = ["pytest>=8", "pytest-asyncio>=0.24"]
 [project.scripts]
 gpx-mcp = "gpx_mcp.server:main"
 gpx-mcp-web = "gpx_mcp.viewer.web:main"
+gpx-climb-map = "gpx_mcp.climb_map:main"
 
 [build-system]
 requires = ["hatchling"]
