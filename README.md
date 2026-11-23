@@ -1,6 +1,6 @@
 > **Personal passion project.** This is my fork of [MarianBecher/gpx-mcp](https://github.com/MarianBecher/gpx-mcp),
 > tweaked to help me plan bike and run adventures (long rides, coffee stops, peaks, ferries) with less busy work.
-> Changes vs. upstream: worldwide geocoding default, Python 3.12 pin, and workflow notes in `ADVENTURES.md`.
+> Changes vs. upstream: worldwide geocoding default, Python 3.12 pin, and an `avoid_unpaved` routing option for road riders, and workflow notes in `ADVENTURES.md`.
 > Upstream has no license, so all credit goes to its author. No warranty, no support.
 
 # gpx-mcp

@@ -192,3 +192,44 @@ def test_load_without_sidecar_hints(tmp_path: Path):
     p.write_text(gpx_utils.build_gpx(synthetic_track(50)))
     m = gpx_utils.load_gpx(str(p))
     assert m["surface_breakdown"] is None and "reclassify_surface" in m["hint"]
+
+
+# --------------------------------------------------------------------------- avoid_unpaved
+
+def _seg(tags, dist_m=100, ferry=False):
+    s = {"dist_m": dist_m, "tags": tags, "node_tags": {}, "ferry": ferry}
+    s.update(classify_tags(tags))
+    s["ferry"] = ferry
+    return s
+
+
+def test_unwanted_segment_indices():
+    from gpx_mcp.routing import unwanted_segment_indices
+
+    segs = [
+        _seg({"highway": "secondary", "surface": "asphalt"}),                  # 0 fine
+        _seg({"highway": "tertiary", "surface": "gravel"}, 800),               # 1 gravel
+        _seg({"highway": "service"}, 417),                                      # 2 long service shortcut
+        _seg({"highway": "service"}, 40),                                       # 3 driveway: ignore
+        _seg({"highway": "track", "tracktype": "grade3"}, 300),                 # 4 track
+        _seg({"highway": "cycleway", "surface": "asphalt"}),                    # 5 fine
+        _seg({"highway": "path", "bicycle": "designated"}, 500),                # 6 designated path = cycleway: ok
+        _seg({"route": "ferry"}, 3000, ferry=True),                             # 7 ferry: ignore
+    ]
+    assert unwanted_segment_indices(segs) == [1, 2, 4]
+
+
+def test_avoid_circles_skip_waypoints_and_space_out():
+    from gpx_mcp.routing import avoid_circles
+
+    pts = parse_points(gpx_utils.build_gpx(synthetic_track(200, 25.0)))  # 5 km east
+    point_seg = [1 if 40 <= i < 160 else 0 for i in range(len(pts))]       # bad 1.0-4.0 km
+    wp = [(pts[40].latitude, pts[40].longitude)]                            # waypoint at start of bad stretch
+    circles = avoid_circles(pts, point_seg, [1], wp)
+    assert circles, "should place circles"
+    # nothing within 200 m of the waypoint, spacing >= ~90 m, radius default
+    from gpx_mcp.metrics import haversine_m
+    assert all(haversine_m(c[0], c[1], *wp[0]) >= 200 for c in circles)
+    assert all(c[2] == 45.0 for c in circles)
+    gaps = [haversine_m(a[0], a[1], b[0], b[1]) for a, b in zip(circles, circles[1:])]
+    assert all(g >= 85 for g in gaps)

@@ -61,6 +61,7 @@ async def route(
     alternative_idx: int = 0,
     nogos: list[tuple[float, float, float]] | None = None,
     nogo_polygons: list[list[tuple[float, float]]] | None = None,
+    avoid_unpaved: bool = False,
 ) -> dict:
     """Bike route through waypoints [(lat, lon), ...] via BRouter. Returns route_id + metadata.
 
@@ -74,6 +75,10 @@ async def route(
       nogos: [(lat, lon, radius_m), ...] circular areas the route must avoid
              (a busy road segment, a closed bridge, a town centre).
       nogo_polygons: [[(lat, lon), ...], ...] polygonal avoid areas.
+      avoid_unpaved: road-rider mode. Re-routes (up to 3 rounds) around gravel, tracks, paths
+             and long service-way shortcuts (cemetery / parking-lot cut-throughs). Result has
+             `avoid_unpaved` metadata with before/after distance and busy-road share: removing
+             gravel often pushes the route onto busier roads, so check the tradeoff.
 
     Metadata: distance_km, ascent_m, descent_m, max_grade_percent, steep_uphill_m,
     climbs (biggest, with km/gain/grade), elevation_profile [[km, ele], ...],
@@ -83,7 +88,7 @@ async def route(
     """
     return await routing_mod.route(
         waypoints=waypoints, profile=profile, alternative_idx=alternative_idx,
-        nogos=nogos, nogo_polygons=nogo_polygons,
+        nogos=nogos, nogo_polygons=nogo_polygons, avoid_unpaved=avoid_unpaved,
     )
 
 

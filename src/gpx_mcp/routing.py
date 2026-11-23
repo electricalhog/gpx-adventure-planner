@@ -105,14 +105,14 @@ def hazards(segments: list[dict]) -> list[dict]:
     return out
 
 
-async def route(
+async def _route_once(
     waypoints: list[tuple[float, float]],
     profile: Profile = "trekking",
     alternative_idx: int = 0,
     nogos: list[tuple[float, float, float]] | None = None,
     nogo_polygons: list[list[tuple[float, float]]] | None = None,
 ) -> dict:
-    """Route between waypoints. Returns metadata + route_id; GPX stays in cache."""
+    """One BRouter request. Returns metadata + route_id; GPX stays in cache."""
     if len(waypoints) < 2:
         raise ValueError("Need at least 2 waypoints (start and end).")
     data = await fetch_geojson(waypoints, profile, alternative_idx, nogos, nogo_polygons)
@@ -144,3 +144,119 @@ async def route(
     )
     route_id = state.store(gpx_text, metadata, segments=segments, point_seg=point_seg)
     return state.get(route_id).metadata
+
+
+# --------------------------------------------------------------------------- avoid unpaved
+
+AVOID_RADIUS_M = 45.0
+_SERVICE_MIN_M = 150  # shorter service ways are driveways / parking aisles, not shortcuts
+_WAYPOINT_CLEARANCE_M = 200  # never block the area around a requested waypoint
+_UNWANTED_HIGHWAYS = {"track", "path", "footway", "pedestrian", "bridleway", "steps"}
+
+
+def unwanted_segment_indices(segments: list[dict]) -> list[int]:
+    """Indices of segments a road rider usually does not want: unpaved surfaces,
+    tracks/paths, and long `highway=service` ways (cemetery / parking-lot shortcuts)."""
+    bad = []
+    for i, s in enumerate(segments):
+        tags = s.get("tags") or {}
+        if s.get("ferry"):
+            continue
+        highway = tags.get("highway", "")
+        if s.get("paved") is False or highway in _UNWANTED_HIGHWAYS and s.get("klass") != "cycleway":
+            bad.append(i)
+        elif highway == "service" and s.get("dist_m", 0) >= _SERVICE_MIN_M:
+            bad.append(i)
+    return bad
+
+
+def avoid_circles(
+    points: list,  # gpxpy trackpoints (.latitude/.longitude)
+    point_seg: list[int],
+    bad: list[int],
+    waypoints: list[tuple[float, float]],
+    radius_m: float = AVOID_RADIUS_M,
+    spacing_m: float = 90.0,
+) -> list[tuple[float, float, float]]:
+    """Nogo circles spaced along the bad segments, skipping areas near waypoints."""
+    from .metrics import haversine_m
+
+    bad_set = set(bad)
+    circles: list[tuple[float, float, float]] = []
+    last: tuple[float, float] | None = None
+    for pt, si in zip(points, point_seg):
+        lat, lon = pt.latitude, pt.longitude
+        if si not in bad_set:
+            last = None
+            continue
+        if any(haversine_m(lat, lon, wl, wo) < _WAYPOINT_CLEARANCE_M for wl, wo in waypoints):
+            continue
+        if last is None or haversine_m(lat, lon, last[0], last[1]) >= spacing_m:
+            circles.append((lat, lon, radius_m))
+            last = (lat, lon)
+    return circles
+
+
+async def route(
+    waypoints: list[tuple[float, float]],
+    profile: Profile = "trekking",
+    alternative_idx: int = 0,
+    nogos: list[tuple[float, float, float]] | None = None,
+    nogo_polygons: list[list[tuple[float, float]]] | None = None,
+    avoid_unpaved: bool = False,
+    max_avoid_rounds: int = 3,
+) -> dict:
+    """Route between waypoints. Returns metadata + route_id; GPX stays in cache.
+
+    With `avoid_unpaved`, re-routes up to `max_avoid_rounds` times, adding nogo circles on
+    gravel/track/path segments and long service-way shortcuts found in the previous result.
+    The returned metadata gains `avoid_unpaved` = {rounds, avoided_m_initial, avoided_m_final,
+    busy_road_pct_before, busy_road_pct_after, note}. If a round makes the route impossible,
+    the last working route is returned and the note says so.
+    """
+    first = await _route_once(waypoints, profile, alternative_idx, nogos, nogo_polygons)
+    if not avoid_unpaved:
+        return first
+
+    def unwanted_m(meta_id: str) -> int:
+        entry = state.get(meta_id)
+        return sum(entry.segments[i].get("dist_m", 0) for i in unwanted_segment_indices(entry.segments))
+
+    best = first
+    initial_m = unwanted_m(first["route_id"])
+    circles = list(nogos or [])
+    note = "no unpaved or shortcut segments found"
+    rounds = 0
+    current = first
+    while rounds < max_avoid_rounds:
+        entry = state.get(current["route_id"])
+        bad = unwanted_segment_indices(entry.segments)
+        if not bad:
+            break
+        new = avoid_circles(entry.pts, entry.point_seg, bad, waypoints)
+        if not new:
+            note = "remaining unpaved/service segments are at your waypoints; left as is"
+            break
+        circles += new
+        rounds += 1
+        try:
+            current = await _route_once(waypoints, profile, alternative_idx, circles, nogo_polygons)
+        except Exception as e:  # BRouter: no route found with these areas blocked
+            note = f"round {rounds} found no route with those areas blocked ({e}); returning previous route"
+            break
+        best = current
+        note = "unpaved/shortcut segments avoided" if not unwanted_segment_indices(state.get(best["route_id"]).segments) else "some unpaved segments remain (no paved alternative nearby)"
+
+    final_m = unwanted_m(best["route_id"])
+    best["avoid_unpaved"] = {
+        "rounds": rounds,
+        "avoided_m_initial": initial_m,
+        "avoided_m_final": final_m,
+        "busy_road_pct_before": first["surface_breakdown"]["busy_road_pct"],
+        "busy_road_pct_after": best["surface_breakdown"]["busy_road_pct"],
+        "distance_km_before": first["distance_km"],
+        "distance_km_after": best["distance_km"],
+        "note": note,
+    }
+    return best
+

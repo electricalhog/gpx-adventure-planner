@@ -11,6 +11,12 @@ Typical tool sequence: `geocode` -> `route` (profile `trekking` / `gravel` / `fa
 -> `estimate_duration` -> `save_gpx` (writes `data/routes/<name>.gpx`).
 `hazards` in `route` output flags ferries and barriers; check borders/passports manually.
 
+## Road-rider mode: `avoid_unpaved`
+`route(..., avoid_unpaved=True)` re-routes (up to 3 rounds) around gravel, tracks, paths and long
+service-way shortcuts (cemetery / parking-lot cut-throughs) by dropping nogo circles on them.
+The result's `avoid_unpaved` block reports distance and busy-road share before/after, because
+removing gravel often moves you onto busier roads. Prefer `fastbike-lowtraffic` with this flag over `gravel`.
+
 ## Upload to Coros
 Use the Coros MCP tool `uploadRouteFile` with the GPX text, `fileName` ending in `.gpx`,
 and `routeType`: 1 = bike, 2 = on foot. Large tracks should be simplified (~600 points) first.
